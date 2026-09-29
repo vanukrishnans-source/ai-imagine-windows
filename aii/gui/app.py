@@ -1,6 +1,7 @@
 """AI Imagine — Qt GUI for Windows, touch-first for the ROG Ally X (7" 1080p, 150% scaling).
 
-Main UI: big prompt box, aspect presets, quality/speed, Create. Options: negative prompt,
+Two modes: (1) text-to-image from a prompt alone, (2) optional photo + prompt remake (img2img)
+with a strength slider. Aspect presets, quality/speed, Create. Options: negative prompt,
 safety strictness, size, processor. Result: Save / Copy / Regenerate / Edit prompt.
 NSFW safety filter is always on — Relaxed/Standard only; no way to disable.
 """
@@ -22,12 +23,12 @@ from PySide6.QtGui import QGuiApplication, QImage, QKeySequence, QPixmap, QShort
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
     QLabel, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QScrollArea,
-    QSizePolicy, QSpinBox, QStackedWidget, QVBoxLayout, QWidget,
+    QSizePolicy, QSlider, QSpinBox, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from .. import __version__
 from .. import models as M
-from ..pipeline import Cancelled as GenCancelled, GenParams, GenResult, new_seed
+from ..pipeline import Cancelled as GenCancelled, GenParams, GenResult, load_photo, new_seed, prepare_photo
 from .. import sdxl as S
 from .theme import QSS
 
@@ -131,6 +132,77 @@ class Segmented(QWidget):
                 return v
 
 
+
+class PhotoSlot(QFrame):
+    """Optional photo for remake mode. Tap / drop / paste. Empty = text-to-image only."""
+    clicked = Signal()
+    dropped = Signal(object)
+    cleared = Signal()
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("card")
+        self.setAcceptDrops(True)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(12, 10, 12, 10)
+        lay.setSpacing(6)
+        top = QHBoxLayout()
+        top.addWidget(label("Photo (optional)", "section"))
+        top.addStretch(1)
+        self.clear_btn = button("Clear", tip="Remove photo — back to text-to-image")
+        self.open_btn = button("Open…")
+        top.addWidget(self.clear_btn)
+        top.addWidget(self.open_btn)
+        lay.addLayout(top)
+        self.image = QLabel("No photo — prompt only\n\nTap to attach a photo\nto remake it with your prompt")
+        self.image.setObjectName("slot")
+        self.image.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.image.setMinimumSize(180, 180)
+        self.image.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
+        lay.addWidget(self.image, 1)
+        self.info = label("Text-to-image mode", "hint", True)
+        lay.addWidget(self.info)
+        self.rgb = None
+        self.open_btn.clicked.connect(self.clicked.emit)
+        self.clear_btn.clicked.connect(self._clear)
+
+    def _clear(self):
+        self.rgb = None
+        self.image.setPixmap(QPixmap())
+        self.image.setText("No photo — prompt only\n\nTap to attach a photo\nto remake it with your prompt")
+        self.info.setText("Text-to-image mode")
+        self.cleared.emit()
+
+    def mouseReleaseEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+
+    def dragEnterEvent(self, e):
+        md = e.mimeData()
+        if md.hasUrls() or md.hasImage():
+            e.acceptProposedAction()
+
+    def dropEvent(self, e):
+        md = e.mimeData()
+        if md.hasUrls() and md.urls():
+            self.dropped.emit(md.urls()[0].toLocalFile())
+        elif md.hasImage():
+            self.dropped.emit(QImage(md.imageData()))
+
+    def set_image(self, rgb):
+        self.rgb = rgb
+        self._render()
+        self.info.setText(f"Photo remake · {rgb.shape[1]}×{rgb.shape[0]}")
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._render()
+
+    def _render(self):
+        if self.rgb is not None:
+            self.image.setPixmap(pix(self.rgb, max(80, self.image.width() - 8), max(80, self.image.height() - 8)))
+
+
 class MainWindow(QMainWindow):
     def __init__(self, store: M.ModelStore, device="auto", settings: QSettings | None = None):
         super().__init__()
@@ -142,6 +214,8 @@ class MainWindow(QMainWindow):
         self.ready = threading.Event()
         self.warm = None
         self.worker = None
+        self.photo = None
+        self.photo_name = ""
         self.result: GenResult | None = None
         self.last_params: GenParams | None = None
         self.saved_path = None
@@ -158,6 +232,8 @@ class MainWindow(QMainWindow):
             self.stack.addWidget(page)
         self.setCentralWidget(central)
         QShortcut(QKeySequence("Ctrl+S"), self, activated=self._save)
+        QShortcut(QKeySequence.StandardKey.Paste, self, activated=self._paste_photo)
+        QShortcut(QKeySequence("Ctrl+O"), self, activated=self._pick_photo)
         QShortcut(QKeySequence("Ctrl+Return"), self, activated=self._create)
         self._load_options()
         if store.is_installed():
@@ -238,7 +314,7 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self, "About AI Imagine",
             f"<b>AI Imagine {__version__}</b> for Windows (x64) by vanu krishnan.<br><br>"
-            "Type a prompt, get a new picture — entirely on this PC (nothing is uploaded).<br><br>"
+            "Type a prompt (and optionally attach a photo to remake it) — entirely on this PC (nothing is uploaded).<br><br>"
             "<b>Model</b>: ByteDance SDXL-Lightning 4-step (CreativeML Open RAIL++-M) + SDXL base components "
             "(Open RAIL++-M) + madebyollin SDXL VAE fp16-fix (MIT) + Stable Diffusion safety checker "
             "(CreativeML OpenRAIL-M). ONNX export redistributed under the same licences.<br><br>"
@@ -410,6 +486,15 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(28, 16, 28, 16)
         lay.setSpacing(12)
         lay.addWidget(label("What do you want to see?", "title"))
+        # Photo (optional) + prompt side by side on wide screens
+        mid = QHBoxLayout(); mid.setSpacing(12)
+        self.slot = PhotoSlot()
+        self.slot.setMaximumWidth(320)
+        self.slot.clicked.connect(self._pick_photo)
+        self.slot.dropped.connect(self._open_any)
+        self.slot.cleared.connect(self._photo_cleared)
+        mid.addWidget(self.slot, 2)
+        right = QVBoxLayout(); right.setSpacing(10)
         pc = card()
         pl = QVBoxLayout(pc)
         pl.setContentsMargins(14, 12, 14, 12)
@@ -422,7 +507,24 @@ class MainWindow(QMainWindow):
         self.prompt.setMinimumHeight(160)
         self.prompt.textChanged.connect(self._refresh_main)
         pl.addWidget(self.prompt)
-        lay.addWidget(pc, 3)
+        right.addWidget(pc, 3)
+        # Strength (only meaningful with a photo)
+        self.strength_card = card()
+        sl = QVBoxLayout(self.strength_card); sl.setContentsMargins(12, 8, 12, 8); sl.setSpacing(0)
+        stop = QHBoxLayout(); stop.addWidget(label("How much to change", "section")); stop.addStretch(1)
+        self.s_val = label("0.65", "section"); stop.addWidget(self.s_val); sl.addLayout(stop)
+        self.s_strength = QSlider(Qt.Orientation.Horizontal)
+        self.s_strength.setRange(30, 95); self.s_strength.setValue(65)
+        self.s_strength.valueChanged.connect(self._strength_changed)
+        sl.addWidget(self.s_strength)
+        ends = QHBoxLayout(); ends.addWidget(label("keep photo", "hint")); ends.addStretch(1); ends.addWidget(label("follow prompt", "hint"))
+        sl.addLayout(ends)
+        self.o_likeness = QCheckBox("Keep likeness (lower change)"); self.o_likeness.setChecked(True)
+        sl.addWidget(self.o_likeness)
+        right.addWidget(self.strength_card)
+        self.strength_card.setVisible(False)
+        mid.addLayout(right, 5)
+        lay.addLayout(mid, 4)
 
         row = QHBoxLayout()
         row.addWidget(label("Aspect", "section"))
@@ -538,7 +640,8 @@ class MainWindow(QMainWindow):
             self.status_hint.setText("Type a prompt, then tap Create.")
         else:
             W, H = S.target_size(self.o_aspect.value() or "1:1", self.o_size.value() or "standard")
-            self.status_hint.setText(f"Ready · {W}×{H} · 4 steps · safety filter on")
+            mode = "photo remake" if self.photo is not None else "text-to-image"
+            self.status_hint.setText(f"Ready · {mode} · {W}×{H} · 4 steps · safety filter on")
 
     def _params(self) -> GenParams:
         seed = new_seed() if self.o_random.isChecked() else int(self.o_seed.value())
@@ -550,7 +653,52 @@ class MainWindow(QMainWindow):
             size=self.o_size.value() or "standard",
             seed=seed,
             strictness=self.o_strict.value() or "relaxed",
+            strength=self.s_strength.value() / 100.0,
+            keep_likeness=self.o_likeness.isChecked(),
         )
+
+
+    def _paste_photo(self):
+        cb = QGuiApplication.clipboard()
+        img = cb.image()
+        if not img.isNull():
+            self._open_any(img)
+
+    def _strength_changed(self, v):
+
+        self.s_val.setText(f"{v / 100:.2f}")
+        self._save_options()
+
+    def _photo_cleared(self):
+        self.photo = None
+        self.photo_name = ""
+        self.strength_card.setVisible(False)
+        self._refresh_main()
+
+    def _pick_photo(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Choose a photo", "", "Images (*.jpg *.jpeg *.png *.webp *.bmp *.tif *.tiff)")
+        if path:
+            self._open_any(path)
+
+    def _open_any(self, src):
+        try:
+            if isinstance(src, QImage):
+                img = src.convertToFormat(QImage.Format.Format_RGB888)
+                w, h, bpl = img.width(), img.height(), img.bytesPerLine()
+                a = np.frombuffer(img.constBits(), np.uint8, count=bpl * h).reshape(h, bpl)[:, :w * 3].reshape(h, w, 3).copy()
+                self.photo = a
+                self.photo_name = "clipboard"
+            else:
+                self.photo = load_photo(src)
+                self.photo_name = Path(src).name
+            W, H = S.target_size(self.o_aspect.value() or "1:1", self.o_size.value() or "standard")
+            preview = prepare_photo(self.photo, W, H)
+            self.slot.set_image(preview)
+            self.strength_card.setVisible(True)
+            self._refresh_main()
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.warning(self, "Photo", f"Could not open photo: {e}")
 
     def _create(self):
         if not self.btn_create.isEnabled():
@@ -568,10 +716,12 @@ class MainWindow(QMainWindow):
         pipe = self.pipe
         hint = self.sec_per_eval
 
+        photo = None if self.photo is None else self.photo.copy()
+
         def work(cancel, emit):
             def cb(label, frac, eta):
                 emit((label, frac, eta))
-            return pipe.generate(params, progress=cb, cancel=cancel, sec_per_eval_hint=hint)
+            return pipe.generate(params, photo=photo, progress=cb, cancel=cancel, sec_per_eval_hint=hint)
 
         self.worker = Worker(work, self)
         self.worker.progressed.connect(self._gen_progress)

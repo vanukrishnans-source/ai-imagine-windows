@@ -57,6 +57,14 @@ def main():
     assets.append(dict(name="vae_decoder.zip", label="VAE decoder", bytes=z.stat().st_size,
                        sha256=sha256(z), kind="zip", dest="."))
 
+    # Portable VAE encoder (madebyollin fp16-fix, MIT) for photo img2img
+    z = STAGE / "vae_encoder.zip"
+    enc = Path("/workspace/ai-imagine-models/vae_encoder_portable")
+    with zipfile.ZipFile(z, "w", zipfile.ZIP_STORED) as zf:
+        zf.write(enc / "model.onnx", "vae_encoder/model.onnx")
+    assets.append(dict(name="vae_encoder.zip", label="VAE encoder (photo remake)", bytes=z.stat().st_size,
+                       sha256=sha256(z), kind="zip", dest="."))
+
     # tokenizers (both identical vocab — ship both folders)
     z = STAGE / "tokenizers.zip"
     with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:

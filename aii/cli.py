@@ -108,32 +108,73 @@ def selftest(args) -> int:
         _install(store, args.import_dir)
         rep["steps"]["models"] = "ok"
         pipe = _pipeline(store, "cpu")
+        from .pipeline import load_photo
+        from PIL import Image as _Image
         prompts = [args.prompt] if args.prompt else PRIVATE_PROMPTS
         results = []
-        for i, pr in enumerate(prompts[:2]):
-            p = GenParams(prompt=pr, seed=args.seed + i, quality="fast", aspect="1:1", size="standard")
-            r = pipe.generate(p, progress=_printer())
-            row = {
-                "prompt": pr, "summary": r.summary(),
-                "nsfw_filter": {
-                    "ran": bool(r.safety_checked and "safety" in r.timings),
-                    "score": r.nsfw, "threshold": r.threshold, "blocked": r.blocked,
-                    "nsfw_terms_in_negative": S.NSFW_NEGATIVE in r.negative,
-                    "safety_model_seconds": r.timings.get("safety"),
-                },
-            }
-            assert row["nsfw_filter"]["ran"], "NSFW classifier did not run"
-            assert row["nsfw_filter"]["nsfw_terms_in_negative"], "NSFW terms missing from negative"
-            if r.blocked:
-                raise AssertionError(f"selftest picture blocked (score {r.nsfw:.3f})")
-            assert r.image is not None and r.image.ndim == 3 and r.image.shape[2] == 3
-            assert float(r.image.std()) > 5, "output looks empty"
-            of = out / f"selftest_{i + 1}.png"
-            _save_png(r.image, of)
-            row["file"] = str(of)
-            row["seconds"] = round(r.seconds, 1)
-            results.append(row)
-            log.info("image %d ok in %.1fs nsfw=%.4f", i + 1, r.seconds, r.nsfw)
+        # --- 1) text-to-image ---
+        p = GenParams(prompt=prompts[0], seed=args.seed, quality="fast", aspect="1:1", size="standard")
+        r = pipe.generate(p, progress=_printer())
+        row = {
+            "mode": "txt2img", "prompt": prompts[0], "summary": r.summary(),
+            "nsfw_filter": {
+                "ran": bool(r.safety_checked and "safety" in r.timings),
+                "score": r.nsfw, "threshold": r.threshold, "blocked": r.blocked,
+                "nsfw_terms_in_negative": S.NSFW_NEGATIVE in r.negative,
+                "safety_model_seconds": r.timings.get("safety"),
+            },
+        }
+        assert row["nsfw_filter"]["ran"], "NSFW classifier did not run"
+        assert row["nsfw_filter"]["nsfw_terms_in_negative"], "NSFW terms missing from negative"
+        if r.blocked:
+            raise AssertionError(f"selftest txt2img blocked (score {r.nsfw:.3f})")
+        assert r.image is not None and float(r.image.std()) > 5
+        of = out / "selftest_1_txt2img.png"
+        _save_png(r.image, of)
+        row["file"] = str(of); row["seconds"] = round(r.seconds, 1)
+        results.append(row)
+        log.info("txt2img ok in %.1fs nsfw=%.4f", r.seconds, r.nsfw)
+        # --- 2) photo remake (img2img) with a private synthetic / local photo ---
+        photo_path = Path(args.photo) if getattr(args, "photo", None) else None
+        if photo_path and photo_path.is_file():
+            photo = load_photo(photo_path)
+        else:
+            # synthetic private subject: gradient "portrait" — no public figures
+            yy, xx = np.mgrid[0:512, 0:512]
+            photo = np.stack([
+                np.clip(80 + xx // 3, 0, 255),
+                np.clip(60 + yy // 4, 0, 255),
+                np.clip(100 + (xx + yy) // 6, 0, 255),
+            ], axis=-1).astype(np.uint8)
+            # soft oval "face" region
+            cy, cx, a, b = 220, 256, 90, 70
+            mask = ((yy - cy) / a) ** 2 + ((xx - cx) / b) ** 2 <= 1
+            photo[mask] = (210, 170, 145)
+            _save_png(photo, out / "selftest_input_synthetic.png")
+        pr2 = prompts[1] if len(prompts) > 1 else "kissing on a sunny beach, romantic, cinematic lighting"
+        p2 = GenParams(prompt=pr2, seed=args.seed + 1, quality="fast", aspect="1:1", size="standard",
+                       strength=0.65, keep_likeness=True)
+        r2 = pipe.generate(p2, photo=photo, progress=_printer())
+        row2 = {
+            "mode": "img2img", "prompt": pr2, "summary": r2.summary(),
+            "nsfw_filter": {
+                "ran": bool(r2.safety_checked and "safety" in r2.timings),
+                "score": r2.nsfw, "threshold": r2.threshold, "blocked": r2.blocked,
+                "nsfw_terms_in_negative": S.NSFW_NEGATIVE in r2.negative,
+                "safety_model_seconds": r2.timings.get("safety"),
+            },
+        }
+        assert row2["nsfw_filter"]["ran"], "NSFW classifier did not run (img2img)"
+        assert row2["nsfw_filter"]["nsfw_terms_in_negative"]
+        if r2.blocked:
+            raise AssertionError(f"selftest img2img blocked (score {r2.nsfw:.3f})")
+        assert r2.image is not None and float(r2.image.std()) > 5
+        assert r2.mode == "img2img"
+        of2 = out / "selftest_2_img2img.png"
+        _save_png(r2.image, of2)
+        row2["file"] = str(of2); row2["seconds"] = round(r2.seconds, 1)
+        results.append(row2)
+        log.info("img2img ok in %.1fs nsfw=%.4f strength=%.2f", r2.seconds, r2.nsfw, r2.strength)
         rep["results"] = results
         rep["nsfw_filter"] = results[0]["nsfw_filter"]
         rep["seconds_generate"] = results[0]["seconds"]
@@ -269,6 +310,7 @@ def main(argv=None) -> int:
     ap.add_argument("--selftest", action="store_true")
     ap.add_argument("--dml-smoke", action="store_true")
     ap.add_argument("--out")
+    ap.add_argument("--photo", help="optional photo for img2img selftest")
     ap.add_argument("--generate", metavar="OUT.png")
     ap.add_argument("--prompt")
     ap.add_argument("--negative", default="")

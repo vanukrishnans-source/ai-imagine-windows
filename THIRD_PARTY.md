@@ -7,6 +7,7 @@
 | SDXL-Lightning 4-step UNet | [ByteDance/SDXL-Lightning](https://huggingface.co/ByteDance/SDXL-Lightning) | CreativeML Open RAIL++-M |
 | SDXL text encoders + config | [stabilityai/stable-diffusion-xl-base-1.0](https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0) | CreativeML Open RAIL++-M |
 | SDXL VAE decoder (fp16-fix) | [madebyollin/sdxl-vae-fp16-fix](https://huggingface.co/madebyollin/sdxl-vae-fp16-fix) | MIT |
+| SDXL VAE encoder (portable ONNX) | exported from madebyollin/sdxl-vae-fp16-fix | MIT |
 | ONNX export (fp16, 3-shard UNet) | [Cyronius/sdxl-lightning-4step-onnx-web-fp16-3shard](https://huggingface.co/Cyronius/sdxl-lightning-4step-onnx-web-fp16-3shard) | same as upstream (Open RAIL++-M / MIT) |
 | Stable Diffusion safety checker | CompVis / AI Image Create models-v1 pack | CreativeML OpenRAIL-M |
 

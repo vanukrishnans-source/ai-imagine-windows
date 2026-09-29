@@ -2,7 +2,7 @@
   "version": "models-v1",
   "model": "ByteDance/SDXL-Lightning 4-step (ONNX fp16) + SDXL VAE + safety checker",
   "licence": "CreativeML Open RAIL++-M (SDXL-Lightning / SDXL base); MIT (VAE fp16-fix); CreativeML OpenRAIL-M (safety)",
-  "download_bytes": 6963666019,
+  "download_bytes": 7100423795,
   "installed_bytes": 7225670480,
   "assets": [
     {
@@ -26,6 +26,14 @@
       "label": "VAE decoder",
       "bytes": 99102056,
       "sha256": "50110893bb97a1a8b3d230ebb831a8914a21a3723a35e4d30412a9c322cb9192",
+      "kind": "zip",
+      "dest": "."
+    },
+    {
+      "name": "vae_encoder.zip",
+      "label": "VAE encoder (photo remake)",
+      "bytes": 136757776,
+      "sha256": "dd74e7a1f7b747664ce9fb1929b80ece1e2553cfb2e703357d6c59aea3f30a52",
       "kind": "zip",
       "dest": "."
     },

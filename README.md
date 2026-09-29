@@ -25,9 +25,16 @@ You can also copy the release files to another PC and use **Import from folder�
 
 ## How to use
 
+### Mode 1 — text-to-image (no photo)
 1. Type what you want to see in the big prompt box.
 2. Pick an **aspect ratio** (1:1, 16:9, 9:16, 4:3, 3:4) and **Best / Fast**.
 3. Tap **Create**.
+
+### Mode 2 — photo remake (optional)
+1. Attach a photo (**Open…**, drag-and-drop, or Paste).
+2. Type a detailed prompt (e.g. `kissing on the beach at sunset, cinematic`).
+3. Set **How much to change** (default 0.65). Enable **Keep likeness** to bias toward the photo.
+4. Tap **Create**.
 
 **Options** (collapsed by default): optional negative prompt, Standard/Large size, seed, safety strictness (Relaxed/Standard), processor Auto/CPU.
 

@@ -168,6 +168,7 @@ REQUIRED_FILES = [
     "unet/model.onnx_data_2",
     "vae_decoder/model.onnx",
     "vae_decoder/model.onnx_data",
+    "vae_encoder/model.onnx",
     "tokenizer/vocab.json",
     "tokenizer/merges.txt",
     "safety.onnx",

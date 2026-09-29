@@ -15,7 +15,7 @@ from . import models as M
 log = logging.getLogger("aii")
 
 # Models that prefer DirectML (heavy). Text encoders + safety stay on CPU for parity / low overhead.
-GPU_MODELS = ("unet", "vae_decoder")
+GPU_MODELS = ("unet", "vae_decoder", "vae_encoder")
 CPU_MODELS = ("text_encoder", "text_encoder_2", "safety")
 
 
@@ -143,7 +143,7 @@ class Engine:
             self.timing[name] = self.timing.get(name, 0.0) + time.time() - t0
             return out
 
-    def warm_up(self, names=("text_encoder", "text_encoder_2", "unet", "vae_decoder", "safety"), cb=None):
+    def warm_up(self, names=("text_encoder", "text_encoder_2", "unet", "vae_decoder", "vae_encoder", "safety"), cb=None):
         for i, n in enumerate(names):
             if cb:
                 cb(n, i, len(names))
