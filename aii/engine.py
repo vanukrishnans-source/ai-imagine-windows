@@ -66,10 +66,14 @@ class Engine:
         if self.info.active == "DirectML":
             self.info.adapter = gpu_adapter_name().split(";")[0].strip()
 
-    def _options(self, dml: bool):
+    def _options(self, dml: bool, basic: bool = False):
         so = self.ort.SessionOptions()
         so.log_severity_level = 3
-        so.graph_optimization_level = self.ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        # fp16 ONNX text encoders break under SimplifiedLayerNormFusion in ort-directml 1.24
+        so.graph_optimization_level = (
+            self.ort.GraphOptimizationLevel.ORT_ENABLE_BASIC if basic
+            else self.ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        )
         if dml:
             so.enable_mem_pattern = False
             so.execution_mode = self.ort.ExecutionMode.ORT_SEQUENTIAL
@@ -79,6 +83,12 @@ class Engine:
             if self.threads:
                 so.intra_op_num_threads = self.threads
         return so
+
+    def _disabled_optimizers(self, name: str):
+        # Cyronius fp16 CLIP exports trip LayerNorm fusion on DirectML ORT builds
+        if name in ("text_encoder", "text_encoder_2"):
+            return ["SimplifiedLayerNormFusion", "LayerNormFusion", "SkipLayerNormFusion"]
+        return None
 
     def _onnx_path(self, name: str) -> Path:
         if name == "safety":
@@ -102,9 +112,14 @@ class Engine:
         want_dml = (not force_cpu) and name in GPU_MODELS and self.info.active == "DirectML"
         if want_dml:
             try:
+                kw = {}
+                dis = self._disabled_optimizers(name)
+                if dis:
+                    kw["disabled_optimizers"] = dis
                 sess = self.ort.InferenceSession(
-                    path, self._options(True),
+                    path, self._options(True, basic=name in ("text_encoder", "text_encoder_2")),
                     providers=[("DmlExecutionProvider", {"device_id": 0}), "CPUExecutionProvider"],
+                    **kw,
                 )
                 used = sess.get_providers()
                 if not used or used[0] != "DmlExecutionProvider":
@@ -114,7 +129,15 @@ class Engine:
                 return sess
             except Exception as e:  # noqa: BLE001
                 self._fallback(name, e)
-        sess = self.ort.InferenceSession(path, self._options(False), providers=["CPUExecutionProvider"])
+        kw = {}
+        dis = self._disabled_optimizers(name)
+        if dis:
+            kw["disabled_optimizers"] = dis
+        sess = self.ort.InferenceSession(
+            path, self._options(False, basic=name in ("text_encoder", "text_encoder_2")),
+            providers=["CPUExecutionProvider"],
+            **kw,
+        )
         self.info.per_model[name] = "CPU"
         self.timing["load_" + name] = time.time() - t0
         return sess
