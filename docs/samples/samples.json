@@ -1,0 +1,37 @@
+[
+ {
+  "prompt": "a cozy wooden cabin in snowy pine woods at dusk, warm window light, cinematic",
+  "nsfw": 0.00013955647591501474,
+  "blocked": false,
+  "seconds": 163.8,
+  "provider": "CPU"
+ },
+ {
+  "prompt": "a red bicycle leaning on a brick wall under pink cherry blossoms, watercolor",
+  "nsfw": 0.0014202602906152606,
+  "blocked": false,
+  "seconds": 117.6,
+  "provider": "CPU"
+ },
+ {
+  "prompt": "a steaming cup of coffee on a wooden table by a rainy window, soft morning light",
+  "nsfw": 0.00014044060662854463,
+  "blocked": false,
+  "seconds": 116.9,
+  "provider": "CPU"
+ },
+ {
+  "prompt": "an origami paper crane on a bookshelf, shallow depth of field, photo",
+  "nsfw": 0.0012167211389169097,
+  "blocked": false,
+  "seconds": 114.5,
+  "provider": "CPU"
+ },
+ {
+  "prompt": "a small sailboat on calm turquoise water at sunrise, impressionist painting",
+  "nsfw": 0.00011232382530579343,
+  "blocked": false,
+  "seconds": 115.5,
+  "provider": "CPU"
+ }
+]

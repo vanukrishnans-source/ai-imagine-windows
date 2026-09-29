@@ -11,7 +11,12 @@ Type a prompt, tap **Create**, get a new picture. Nothing is uploaded.
 
 ## Screenshots
 
-Screenshots and a sample sheet are produced by CI and attached under `docs/` / release artifacts after the first successful build.
+| Main | Options | Result |
+|---|---|---|
+| ![main](https://raw.githubusercontent.com/vanukrishnans-source/ai-imagine-windows/main/docs/screens/02_main.png) | ![options](https://raw.githubusercontent.com/vanukrishnans-source/ai-imagine-windows/main/docs/screens/03_options.png) | ![result](https://raw.githubusercontent.com/vanukrishnans-source/ai-imagine-windows/main/docs/screens/05_result.png) |
+
+Sample sheet (CPU, packaged exe):
+![samples](https://raw.githubusercontent.com/vanukrishnans-source/ai-imagine-windows/main/docs/samples/windows_samples.png)
 
 ## Install (first run)
 
