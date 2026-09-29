@@ -1,0 +1,89 @@
+{
+  "version": "models-v1",
+  "model": "ByteDance/SDXL-Lightning 4-step (ONNX fp16) + SDXL VAE + safety checker",
+  "licence": "CreativeML Open RAIL++-M (SDXL-Lightning / SDXL base); MIT (VAE fp16-fix); CreativeML OpenRAIL-M (safety)",
+  "download_bytes": 6963666019,
+  "installed_bytes": 7225670480,
+  "assets": [
+    {
+      "name": "text_encoder.zip",
+      "label": "Text encoder (CLIP-L)",
+      "bytes": 246482513,
+      "sha256": "3daf2b063e4f941e51fe2288d60edbb8e6a97d6cd33264cd0cae443124f31461",
+      "kind": "zip",
+      "dest": "."
+    },
+    {
+      "name": "text_encoder_2.zip",
+      "label": "Text encoder 2 (OpenCLIP-G)",
+      "bytes": 1390368462,
+      "sha256": "b9a6781524e87d3b6803b628f31332958107279ad65a0494615201b03bb789e7",
+      "kind": "zip",
+      "dest": "."
+    },
+    {
+      "name": "vae_decoder.zip",
+      "label": "VAE decoder",
+      "bytes": 99102056,
+      "sha256": "50110893bb97a1a8b3d230ebb831a8914a21a3723a35e4d30412a9c322cb9192",
+      "kind": "zip",
+      "dest": "."
+    },
+    {
+      "name": "tokenizers.zip",
+      "label": "Tokenizers + scheduler",
+      "bytes": 2327833,
+      "sha256": "23f32396e3c46bc76229c76727779faaace8f1ccf48a5c33e33a715c8e0edb53",
+      "kind": "zip",
+      "dest": "."
+    },
+    {
+      "name": "unet-model.onnx",
+      "label": "UNet model.onnx",
+      "bytes": 4061552,
+      "sha256": "cc0841c261fdcd4aeb0af0582e5e7726f63edcd67515adc9508f985566001698",
+      "kind": "file",
+      "dest": "unet/model.onnx"
+    },
+    {
+      "name": "unet-model.onnx_data",
+      "label": "UNet model.onnx_data",
+      "bytes": 2000000000,
+      "sha256": "99bf38881b2491d3d78789c9e7bbb1a81bdada86c143040417e69676700d64de",
+      "kind": "file",
+      "dest": "unet/model.onnx_data"
+    },
+    {
+      "name": "unet-model.onnx_data_1",
+      "label": "UNet model.onnx_data_1",
+      "bytes": 2000000000,
+      "sha256": "2e9e7629e2fc2a4c4d4afb5aa7779e3c50ee17e3612f26af07f6019b61eff56d",
+      "kind": "file",
+      "dest": "unet/model.onnx_data_1"
+    },
+    {
+      "name": "unet-model.onnx_data_2",
+      "label": "UNet model.onnx_data_2",
+      "bytes": 1134903040,
+      "sha256": "e50c0ee78767cfbdc49c905fc441d4736f40cb9c679ebf6252ecf3c392181036",
+      "kind": "file",
+      "dest": "unet/model.onnx_data_2"
+    },
+    {
+      "name": "unet-config.json",
+      "label": "UNet config.json",
+      "bytes": 1935,
+      "sha256": "278f602a9ec48c9fcdedb4017dbdc893999311bc2c94e717d5d811d505ad8068",
+      "kind": "file",
+      "dest": "unet/config.json"
+    },
+    {
+      "name": "safety.zip",
+      "label": "Safety filter (NSFW)",
+      "bytes": 86418628,
+      "sha256": "66db6078552261d3f2894f51374e0dc841ccf46ba1fbc72c3594ca11a008d6c1",
+      "kind": "zip",
+      "dest": "."
+    }
+  ]
+}

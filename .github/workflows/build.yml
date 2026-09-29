@@ -1,0 +1,203 @@
+# Build AI Imagine (Windows x64 portable zip), test the PACKAGED exe on windows-latest, publish a GitHub Release.
+name: build
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Create / update the GitHub Release with the zip"
+        type: boolean
+        default: false
+      samples:
+        description: "Render the sample sheet"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+env:
+  PYTHON_VERSION: "3.13"
+  PYTHONUTF8: "1"
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements-win.txt
+
+      - name: Runner info
+        shell: pwsh
+        run: |
+          Get-CimInstance Win32_Processor | Select-Object Name, NumberOfCores, NumberOfLogicalProcessors | Format-List
+          Get-CimInstance Win32_VideoController | Select-Object Name, DriverVersion, AdapterRAM | Format-List
+          [System.Environment]::OSVersion.VersionString
+          Get-PSDrive C, D -ErrorAction SilentlyContinue | Format-Table Name, Used, Free
+
+      - name: Install Python deps
+        shell: pwsh
+        run: |
+          python -m pip install -U pip wheel
+          pip install -r requirements-win.txt
+          python -c "import onnxruntime, PySide6, regex, PIL; print(onnxruntime.__version__, onnxruntime.get_available_providers(), PySide6.__version__)"
+
+      - name: Cache model release files (models-v1)
+        uses: actions/cache@v4
+        with:
+          path: .release-cache
+          key: aii-models-v1-${{ hashFiles('aii/resources/manifest.json') }}
+
+      - name: Fetch model release files (same URLs + SHA-256 as the app)
+        shell: pwsh
+        run: python scripts/prefetch_release.py .release-cache
+
+      - name: PyInstaller (onedir, GUI exe + console exe)
+        shell: pwsh
+        run: |
+          pyinstaller AIImagine.spec --noconfirm
+          "{0:N1} MB" -f ((Get-ChildItem dist/AIImagine -Recurse | Measure-Object Length -Sum).Sum / 1MB)
+          if (Test-Path dist/AIImagine/_internal/cv2) { throw "OpenCV must not be bundled" }
+
+      - name: Install models with the packaged exe (import folder -> unpack)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path selftest-out | Out-Null
+          & dist\AIImagine\AIImagine_cli.exe --download --import "$PWD\.release-cache" --models "$PWD\.models"
+          if ($LASTEXITCODE -ne 0) { throw "model install failed" }
+          Get-ChildItem .models -Recurse -Depth 2 | Select-Object FullName, Length | Format-Table
+
+      - name: Selftest - packaged AIImagine_cli.exe, CPU, 2 private prompts, NSFW check, DirectML smoke
+        shell: pwsh
+        run: |
+          $out = "$PWD\selftest-out\cli"
+          & dist\AIImagine\AIImagine_cli.exe --selftest --models "$PWD\.models" --out $out --dml-smoke --device cpu --seed 1234
+          $code = $LASTEXITCODE
+          Get-Content "$out\selftest_report.json"
+          if ($code -ne 0) { throw "selftest failed: $code" }
+
+      - name: Selftest - packaged windowed AIImagine.exe
+        shell: pwsh
+        run: |
+          $out = "$PWD\selftest-out\gui_exe"
+          $p = Start-Process -FilePath dist\AIImagine\AIImagine.exe -PassThru -Wait -ArgumentList @(
+            "--selftest", "--models", "`"$PWD\.models`"", "--out", "`"$out`"", "--seed", "1235", "--device", "cpu")
+          Write-Host "exit code $($p.ExitCode)"
+          Get-Content "$out\selftest_report.json"
+          if ($p.ExitCode -ne 0) { throw "windowed selftest failed" }
+
+      - name: GUI launch smoke (real window on the runner desktop)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          New-Item -ItemType Directory -Force -Path screens-ci | Out-Null
+          Remove-Item "$env:LOCALAPPDATA\AIImagine\gui_smoke.json" -ErrorAction SilentlyContinue
+          $p = Start-Process -FilePath dist\AIImagine\AIImagine.exe -PassThru -ArgumentList @(
+            "--models", "`"$PWD\.models`"", "--prompt", "`"a red bicycle under cherry blossoms`"",
+            "--gui-smoke", "75")
+          Start-Sleep -Seconds 50
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          $g = [System.Drawing.Graphics]::FromImage($bmp)
+          $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+          $bmp.Save("$PWD\screens-ci\desktop_gui_launch.png", [System.Drawing.Imaging.ImageFormat]::Png)
+          $alive = -not $p.HasExited
+          $p.WaitForExit(90000) | Out-Null
+          $smoke = Get-Content "$env:LOCALAPPDATA\AIImagine\gui_smoke.json" -ErrorAction SilentlyContinue
+          Write-Host "alive after 50 s: $alive; exit: $($p.ExitCode); smoke: $smoke; screen $($b.Width)x$($b.Height)"
+          "alive=$alive exit=$($p.ExitCode) screen=$($b.Width)x$($b.Height) smoke=$smoke" | Out-File selftest-out\gui_launch.txt
+          if (-not $alive -or -not $smoke) { throw "GUI smoke failed" }
+
+      - name: UI screenshots with the packaged exe (offscreen Qt, 150 %)
+        shell: pwsh
+        run: |
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $env:QT_QPA_FONTDIR = "$env:WINDIR\Fonts"
+          $p = Start-Process -FilePath dist\AIImagine\AIImagine_cli.exe -PassThru -Wait -NoNewWindow -ArgumentList @(
+            "--screenshots", "`"$PWD\screens-ci`"", "--prompt", "`"a cozy cabin in the snow`"",
+            "--models", "`"$PWD\.models`"", "--device", "cpu",
+            "--out", "`"$PWD\selftest-out\cli\selftest_1.png`"")
+          Get-ChildItem screens-ci | Format-Table Name, Length
+          if ($p.ExitCode -ne 0) { throw "screenshots failed: $($p.ExitCode)" }
+
+      - name: Sample sheet (packaged exe, CPU, text-to-image)
+        if: github.event_name != 'workflow_dispatch' || inputs.samples
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path samples-ci | Out-Null
+          & dist\AIImagine\AIImagine_cli.exe --samples "$PWD\samples-ci\windows_samples.png" `
+            --models "$PWD\.models" --device cpu --seed 1234
+          if ($LASTEXITCODE -ne 0) { throw "samples failed" }
+          Get-ChildItem samples-ci | Format-Table Name, Length
+
+      - name: Make portable zip
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File packaging/make_zip.ps1
+          Get-ChildItem dist\*.zip | Format-Table Name, Length
+          Get-Content dist\SHA256SUMS
+
+      - name: Upload build + test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AIImagine-win64-tests
+          path: |
+            selftest-out/**
+            screens-ci/**
+            samples-ci/**
+            dist/SHA256SUMS
+
+      - name: Upload zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AIImagine-win64-zip
+          path: dist/AIImagine-*-win64.zip
+          compression-level: 0
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $zip = Get-ChildItem dist\AIImagine-*-win64.zip | Select-Object -First 1
+          $ver = $zip.Name -replace '^AIImagine-(.+)-win64\.zip$', '$1'
+          $tag = if ("${{ github.ref }}".StartsWith("refs/tags/")) { "${{ github.ref_name }}" } else { "v$ver" }
+          $sha = (Get-FileHash $zip.FullName -Algorithm SHA256).Hash.ToLower()
+          $r = Get-Content selftest-out\cli\selftest_report.json -Raw | ConvertFrom-Json
+          $lines = @(
+            "Portable build for Windows 10/11 x64 — offline text-to-image for the ASUS ROG Ally X (Radeon 780M, DirectML), works on any PC with automatic CPU fallback.",
+            "",
+            "| Asset | Size | SHA-256 |",
+            "|---|---|---|",
+            "| $($zip.Name) | $($zip.Length) bytes | $sha |",
+            "",
+            "### First run",
+            "1. Unzip, open the AIImagine folder, run **AIImagine.exe**.",
+            "2. **SmartScreen** (the app isn't code-signed): click **More info**, then **Run anyway**.",
+            "3. Tap **Download** for the one-time AI model download (~6.5 GB from the ai-imagine-models release, about 7.2 GB on disk).",
+            "",
+            "Details, speed estimates and licences: https://github.com/${{ github.repository }}#readme",
+            "",
+            "### CI (windows-latest, packaged exe)",
+            "- Selftest (CPU, 2 private prompts, NSFW check ran: $($r.nsfw_filter.ran), score $([math]::Round($r.nsfw_filter.score,4))): ok=$($r.ok), $($r.seconds_generate) s",
+            "- DirectML smoke: $($r.dml_smoke.status)"
+          )
+          $lines -join "`n" | Out-File -Encoding utf8 notes.md
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag $zip.FullName dist\SHA256SUMS --title "AI Imagine for Windows $tag" --notes-file notes.md
+          } else {
+            gh release upload $tag $zip.FullName dist\SHA256SUMS --clobber
+            gh release edit $tag --notes-file notes.md
+          }

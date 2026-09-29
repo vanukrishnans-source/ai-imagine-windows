@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.venv/
+dist/
+build/
+*.spec.bak
+.release-cache/
+.models/
+selftest-out/
+screens-ci/
+samples-ci/
+parity/
+*.log
+.DS_Store
